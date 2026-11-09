@@ -124,7 +124,7 @@ function getLessons(token) {
     const p = prog[l.id] || { best: 0, stars: 0 };
     const out = {
       id: l.id, unit: l.unit, no: i + 1, title: l.title, icon: l.icon,
-      words: l.words.map(w => ({ en: w[0], rd: w[1], th: w[2] })),
+      words: l.words.map(w => ({ en: w[0], rd: w[1], th: w[2], emoji: emojiFor_(w[0]) })),
       sentences: l.sentences.map(s => ({ en: s[0], rd: s[1], th: s[2] })),
       patterns: (l.patterns || []).map(p => ({ type: p[0], en: p[1], rd: p[2], th: p[3] })),
       dialogs: l.dialogs.map(d => ({ q: d[0], qr: d[1], qt: d[2], a: d[3], ar: d[4], at: d[5] })),

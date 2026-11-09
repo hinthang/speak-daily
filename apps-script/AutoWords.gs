@@ -96,6 +96,7 @@ function generateWords_(nWords, nSents) {
     '      Examples: meeting → มี-ดิ้ง, data → เด-ด้า, thank you → แธง-คิว, schedule → สเก็จ-จูล, problem → พรา-เบลิ้ม.',
     '  th: short natural Thai meaning.',
     '  tip: one short Thai tip about a mistake Thai speakers often make with this word (stress, th, final sounds, silent letters). Empty string if none.',
+    '  emoji: ONE emoji that best pictures the word (an object, action, person or feeling). For abstract words pick the closest symbol, e.g. deadline → ⏰, query → 🔎.',
     '',
     'sentences: exactly ' + (nSents + 1) + ' natural spoken sentences of 4 to 9 words that use the new words. Mix forms: affirmative, negative, question, past, future.',
     '  en: the sentence with normal punctuation.',
@@ -107,7 +108,7 @@ function generateWords_(nWords, nSents) {
   ].join('\n');
 
   const schema = S_({
-    words: { type: 'ARRAY', items: S_({ en: STR_, rd: STR_, th: STR_, tip: STR_ }) },
+    words: { type: 'ARRAY', items: S_({ en: STR_, rd: STR_, th: STR_, tip: STR_, emoji: STR_ }) },
     sentences: { type: 'ARRAY', items: S_({ en: STR_, rd: STR_, th: STR_, tip: STR_ }) },
     dialog: S_({ q: STR_, qr: STR_, qt: STR_, a: STR_, ar: STR_, at: STR_ })
   });
@@ -119,7 +120,7 @@ function generateWords_(nWords, nSents) {
     .filter(w => w && /^[a-z][a-z' .-]{0,40}$/i.test(String(w.en).trim()) && thai(w.rd) && thai(w.th))
     .filter(w => { const k = String(w.en).trim().toLowerCase(); if (haveSet.has(k)) return false; haveSet.add(k); return true; })
     .slice(0, nWords)
-    .map(w => [String(w.en).trim(), String(w.rd).trim(), String(w.th).trim(), topic.cat, String(w.tip || '').trim()]);
+    .map(w => [String(w.en).trim(), String(w.rd).trim(), String(w.th).trim(), topic.cat, String(w.tip || '').trim(), String(w.emoji || '').trim().slice(0, 16)]);
   const sentences = (out.sentences || [])
     .filter(s => s && s.en && thai(s.rd) && thai(s.th) && sameCount(s.en, s.rd) && !haveS.has(String(s.en).trim().toLowerCase()))
     .slice(0, nSents)
@@ -133,7 +134,7 @@ function generateWords_(nWords, nSents) {
 // บันทึกผลจาก Gemini ลงชีต
 function saveGenerated_(g) {
   const ss = getSS_();
-  if (g.words.length) { const sh = ss.getSheetByName(SHEET_VOCAB); sh.getRange(sh.getLastRow() + 1, 1, g.words.length, 5).setValues(g.words); }
+  if (g.words.length) { ensureEmojiCol_(); const sh = ss.getSheetByName(SHEET_VOCAB); sh.getRange(sh.getLastRow() + 1, 1, g.words.length, 6).setValues(g.words); }
   if (g.sentences.length) { const sh = ss.getSheetByName(SHEET_SENT); sh.getRange(sh.getLastRow() + 1, 1, g.sentences.length, 5).setValues(g.sentences); }
   if (g.dialog) {
     const sh = ensureSheet_(ss, SHEET_DLG, ['question', 'q_reading', 'q_thai', 'answer', 'a_reading', 'a_thai', 'topic'], SEED_DIALOG);

@@ -67,6 +67,7 @@ function getSS_() {
 function setup() {
   const ss = getSS_();
   ensureSheet_(ss, SHEET_VOCAB, ['english', 'reading', 'thai', 'category', 'tip'], SEED_VOCAB.map(r => applyPron_(r, PRON_VOCAB)));
+  ensureEmojiCol_();
   ensureSheet_(ss, SHEET_SENT, ['english', 'reading', 'thai', 'level', 'tip'], SEED_SENT.map(r => applyPron_(r, PRON_SENT)));
   ensureSheet_(ss, SHEET_PROG, ['id', 'type', 'learned_at', 'user'], []);
   ensureAuthSheets_();
@@ -106,7 +107,7 @@ function getRandomSet(token, n, m, category, level) {
   const user = requireUser_(token);
   const learned = learnedSet_(user);
   const allVocab = readTable_(SHEET_VOCAB).map(r => ({
-    id: 'w:' + r[0], en: String(r[0]), rd: String(r[1]), th: String(r[2]), cat: String(r[3]), tip: String(r[4] || '')
+    id: 'w:' + r[0], en: String(r[0]), rd: String(r[1]), th: String(r[2]), cat: String(r[3]), tip: String(r[4] || ''), emoji: emojiFor_(r[0], r[5])
   }));
   const allSents = readTable_(SHEET_SENT).map(r => ({
     id: 's:' + r[0], en: String(r[0]), rd: String(r[1]), th: String(r[2]), lvl: String(r[3]), tip: String(r[4] || '')
@@ -135,7 +136,7 @@ function getRandomSet(token, n, m, category, level) {
 // สำหรับโหมดฝึกฟัง: คืนข้อมูลทั้งหมดให้หน้าเว็บสุ่มคำถามเอง
 function getAllForQuiz() {
   return {
-    words: readTable_(SHEET_VOCAB).map(r => ({ en: String(r[0]), rd: String(r[1]), th: String(r[2]), tip: String(r[4] || '') })),
+    words: readTable_(SHEET_VOCAB).map(r => ({ en: String(r[0]), rd: String(r[1]), th: String(r[2]), tip: String(r[4] || ''), emoji: emojiFor_(r[0], r[5]) })),
     sentences: readTable_(SHEET_SENT).map(r => ({ en: String(r[0]), rd: String(r[1]), th: String(r[2]), tip: String(r[4] || '') }))
   };
 }
@@ -226,16 +227,24 @@ function addFromBank(token) {
   return addDailyWords(5, 2);
 }
 
-function addWord(token, en, rd, th, cat, tip) {
+function addWord(token, en, rd, th, cat, tip, emoji) {
   requireUser_(token);
+  emoji = String(emoji || '').trim().slice(0, 16);
   en = String(en || '').trim(); rd = String(rd || '').trim();
   th = String(th || '').trim(); cat = String(cat || '').trim() || 'คำของฉัน';
   tip = String(tip || '').trim();
   if (!en || !th) throw new Error('กรอกคำภาษาอังกฤษและคำแปลก่อน');
   const have = new Set(readTable_(SHEET_VOCAB).map(r => String(r[0]).toLowerCase()));
   if (have.has(en.toLowerCase())) throw new Error('มีคำว่า "' + en + '" อยู่แล้ว');
-  getSS_().getSheetByName(SHEET_VOCAB).appendRow([en, rd, th, cat, tip]);
+  ensureEmojiCol_();
+  getSS_().getSheetByName(SHEET_VOCAB).appendRow([en, rd, th, cat, tip, emoji]);
   return 'เพิ่ม "' + en + '" แล้ว';
+}
+
+// เพิ่มหัวคอลัมน์ emoji (F) ในชีต Vocab ถ้ายังไม่มี
+function ensureEmojiCol_() {
+  const sh = getSS_().getSheetByName(SHEET_VOCAB);
+  if (sh && !sh.getRange(1, 6).getValue()) sh.getRange(1, 6).setValue('emoji').setFontWeight('bold');
 }
 
 function bankLeft_() {

@@ -50,10 +50,10 @@ function reviewCounts_(user) {
 // เนื้อหาของแต่ละ id (จากชีตคำศัพท์/ประโยค และบทเรียน)
 function contentMap_() {
   const map = {};
-  readTable_(SHEET_VOCAB).forEach(r => { map['w:' + r[0]] = { en: String(r[0]), rd: String(r[1]), th: String(r[2]), tip: String(r[4] || ''), cat: String(r[3]) }; });
+  readTable_(SHEET_VOCAB).forEach(r => { map['w:' + r[0]] = { en: String(r[0]), rd: String(r[1]), th: String(r[2]), tip: String(r[4] || ''), cat: String(r[3]), emoji: emojiFor_(r[0], r[5]) }; });
   readTable_(SHEET_SENT).forEach(r => { map['s:' + r[0]] = { en: String(r[0]), rd: String(r[1]), th: String(r[2]), tip: String(r[4] || ''), cat: String(r[3]) }; });
   LESSONS.forEach(l => {
-    l.words.forEach(w => { if (!map['w:' + w[0]]) map['w:' + w[0]] = { en: w[0], rd: w[1], th: w[2], tip: '', cat: l.title }; });
+    l.words.forEach(w => { if (!map['w:' + w[0]]) map['w:' + w[0]] = { en: w[0], rd: w[1], th: w[2], tip: '', cat: l.title, emoji: emojiFor_(w[0]) }; });
     l.sentences.concat(l.patterns || []).forEach(s => {
       const x = s.length === 4 ? s.slice(1) : s;    // patterns มีคอลัมน์รูปแบบนำหน้า
       if (!map['s:' + x[0]]) map['s:' + x[0]] = { en: x[0], rd: x[1], th: x[2], tip: '', cat: l.title };
