@@ -1,3 +1,8 @@
+# Deploy โค้ดหลังบ้านขึ้น Google Apps Script อัตโนมัติ เมื่อมีการ Commit ที่ main
+# ต้องตั้งค่าใน Settings → Secrets and variables → Actions:
+#   Secret   CLASPRC_JSON  = เนื้อหาไฟล์ .clasprc.json (ได้จาก npx @google/clasp login)
+#   Variable SCRIPT_ID     = Script ID ของโปรเจกต์ Apps Script
+#   Variable DEPLOYMENT_ID = Deployment ID ของ Web app (ลิงก์ /exec เดิม)
 name: Deploy Apps Script
 
 on:
@@ -10,11 +15,11 @@ concurrency: deploy-apps-script
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -28,6 +33,7 @@ jobs:
           test -n "$SCRIPT_ID"     || { echo "::error::ยังไม่ได้ใส่ Variable SCRIPT_ID"; exit 1; }
           test -n "$DEPLOYMENT_ID" || { echo "::error::ยังไม่ได้ใส่ Variable DEPLOYMENT_ID"; exit 1; }
           printf '%s' "$CLASPRC" > ~/.clasprc.json
+          # clasp push แทนที่ไฟล์ทั้งโปรเจกต์ → ต้องมีหน้าเว็บ Index ไปด้วยเสมอ
           cp index.html apps-script/Index.html
           printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > apps-script/.clasp.json
           npm install -g @google/clasp@3
@@ -37,12 +43,35 @@ jobs:
         working-directory: apps-script
         run: clasp push --force
 
+      # สร้างเวอร์ชันใหม่ แล้วผูกกับ deployment เดิม (ลิงก์ /exec ไม่เปลี่ยน) ผ่าน Apps Script API โดยตรง
       - name: Deploy new version (same /exec URL)
-        working-directory: apps-script
         env:
+          SCRIPT_ID: ${{ vars.SCRIPT_ID }}
           DEPLOYMENT_ID: ${{ vars.DEPLOYMENT_ID }}
         run: |
-          DESC="GitHub ${GITHUB_SHA::7}"
-          clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$DESC" \
-            || clasp update-deployment "$DEPLOYMENT_ID" --description "$DESC"
-          echo "### ✅ Deploy แล้ว: $DESC" >> "$GITHUB_STEP_SUMMARY"
+          node --input-type=module <<'JS'
+          import fs from 'node:fs'; import os from 'node:os';
+          const { SCRIPT_ID: SID, DEPLOYMENT_ID: DID, GITHUB_SHA } = process.env;
+          const DESC = 'GitHub ' + GITHUB_SHA.slice(0, 7);
+          const rc = JSON.parse(fs.readFileSync(os.homedir() + '/.clasprc.json', 'utf8'));
+          // รองรับไฟล์ login ของ clasp ทั้งเวอร์ชัน 3 (tokens.default) และเวอร์ชัน 2 (token + oauth2ClientSettings)
+          const c = rc.tokens ? (rc.tokens.default || Object.values(rc.tokens)[0])
+            : { ...rc.token, client_id: rc.oauth2ClientSettings?.clientId, client_secret: rc.oauth2ClientSettings?.clientSecret };
+          const fail = (msg, body) => { console.log(`::error::${msg}`); if (body) console.log(JSON.stringify(body, null, 2)); process.exit(1); };
+          const tok = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ client_id: c.client_id, client_secret: c.client_secret, refresh_token: c.refresh_token, grant_type: 'refresh_token' })
+          }).then(r => r.json());
+          if (!tok.access_token) fail('ขอ access token ไม่ได้ — รัน npx @google/clasp login ใหม่ แล้วอัปเดต Secret CLASPRC_JSON', tok);
+          const H = { Authorization: 'Bearer ' + tok.access_token, 'Content-Type': 'application/json' };
+          const api = 'https://script.googleapis.com/v1/projects/' + SID;
+          const ver = await fetch(api + '/versions', { method: 'POST', headers: H, body: JSON.stringify({ description: DESC }) }).then(r => r.json());
+          if (!ver.versionNumber) fail('สร้างเวอร์ชันใหม่ไม่สำเร็จ', ver);
+          const dep = await fetch(api + '/deployments/' + DID, {
+            method: 'PUT', headers: H,
+            body: JSON.stringify({ deploymentConfig: { scriptId: SID, versionNumber: ver.versionNumber, manifestFileName: 'appsscript', description: DESC } })
+          }).then(r => r.json());
+          if (dep.deploymentConfig?.versionNumber !== ver.versionNumber) fail('อัปเดต deployment เดิมไม่สำเร็จ (ตรวจ DEPLOYMENT_ID)', dep);
+          console.log(`Deployed version ${ver.versionNumber} to ${DID}`);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ✅ Deploy แล้ว: เวอร์ชัน ${ver.versionNumber} (${DESC})\n`);
+          JS
