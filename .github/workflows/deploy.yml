@@ -51,27 +51,35 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import fs from 'node:fs'; import os from 'node:os';
-          const { SCRIPT_ID: SID, DEPLOYMENT_ID: DID, GITHUB_SHA } = process.env;
+          const { GITHUB_SHA } = process.env;
+          // รับได้ทั้ง ID ล้วน หรือวางลิงก์ /exec ทั้งลิงก์ — ดึงเฉพาะส่วน AKfycb… ออกมา
+          const SID = String(process.env.SCRIPT_ID || '').trim();
+          const DID = (String(process.env.DEPLOYMENT_ID || '').match(/AKfy[\w-]+/) || [])[0];
           const DESC = 'GitHub ' + GITHUB_SHA.slice(0, 7);
           const rc = JSON.parse(fs.readFileSync(os.homedir() + '/.clasprc.json', 'utf8'));
           // รองรับไฟล์ login ของ clasp ทั้งเวอร์ชัน 3 (tokens.default) และเวอร์ชัน 2 (token + oauth2ClientSettings)
           const c = rc.tokens ? (rc.tokens.default || Object.values(rc.tokens)[0])
             : { ...rc.token, client_id: rc.oauth2ClientSettings?.clientId, client_secret: rc.oauth2ClientSettings?.clientSecret };
           const fail = (msg, body) => { console.log(`::error::${msg}`); if (body) console.log(JSON.stringify(body, null, 2)); process.exit(1); };
+          // อ่านคำตอบแบบปลอดภัย: ถ้า Google ตอบเป็น HTML จะไม่พัง แต่บอกสถานะให้รู้
+          const j = async r => { const t = await r.text(); try { return JSON.parse(t); } catch { return { httpStatus: r.status, notJson: t.slice(0, 120) }; } };
+          if (!DID) fail('Variable DEPLOYMENT_ID ต้องมี ID ที่ขึ้นต้นด้วย AKfycb… (ดูที่ Apps Script → การทำให้ใช้งานได้ → จัดการการทำให้ใช้งานได้)');
+          if (!/^[\w-]{20,}$/.test(SID)) fail('Variable SCRIPT_ID ไม่ถูกต้อง (ดูที่ Apps Script → ⚙️ การตั้งค่าโปรเจ็กต์ → รหัสสคริปต์)');
+          console.log('Script ID: ' + SID + ' | Deployment ID: ' + DID);
           const tok = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({ client_id: c.client_id, client_secret: c.client_secret, refresh_token: c.refresh_token, grant_type: 'refresh_token' })
-          }).then(r => r.json());
+          }).then(j);
           if (!tok.access_token) fail('ขอ access token ไม่ได้ — รัน npx @google/clasp login ใหม่ แล้วอัปเดต Secret CLASPRC_JSON', tok);
           const H = { Authorization: 'Bearer ' + tok.access_token, 'Content-Type': 'application/json' };
           const api = 'https://script.googleapis.com/v1/projects/' + SID;
-          const ver = await fetch(api + '/versions', { method: 'POST', headers: H, body: JSON.stringify({ description: DESC }) }).then(r => r.json());
+          const ver = await fetch(api + '/versions', { method: 'POST', headers: H, body: JSON.stringify({ description: DESC }) }).then(j);
           if (!ver.versionNumber) fail('สร้างเวอร์ชันใหม่ไม่สำเร็จ', ver);
-          const dep = await fetch(api + '/deployments/' + DID, {
+          const dep = await fetch(api + '/deployments/' + encodeURIComponent(DID), {
             method: 'PUT', headers: H,
             body: JSON.stringify({ deploymentConfig: { scriptId: SID, versionNumber: ver.versionNumber, manifestFileName: 'appsscript', description: DESC } })
-          }).then(r => r.json());
-          if (dep.deploymentConfig?.versionNumber !== ver.versionNumber) fail('อัปเดต deployment เดิมไม่สำเร็จ (ตรวจ DEPLOYMENT_ID)', dep);
+          }).then(j);
+          if (dep.deploymentConfig?.versionNumber !== ver.versionNumber) fail('อัปเดต deployment ไม่สำเร็จ — ตรวจว่า DEPLOYMENT_ID เป็นของลิงก์ /exec ที่ใช้อยู่ และ SCRIPT_ID เป็นโปรเจ็กต์เดียวกัน', dep);
           console.log(`Deployed version ${ver.versionNumber} to ${DID}`);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ✅ Deploy แล้ว: เวอร์ชัน ${ver.versionNumber} (${DESC})\n`);
           JS
